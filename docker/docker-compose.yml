@@ -1,0 +1,39 @@
+# GrowthPilot — Local Development Stack
+# Usage: docker compose -f docker/docker-compose.yml up -d db
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: growthpilot-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: growthpilot
+      POSTGRES_PASSWORD: growthpilot_dev
+      POSTGRES_DB: growthpilot
+    ports:
+      - "5433:5432"
+    volumes:
+      - growthpilot_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U growthpilot -d growthpilot"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: growthpilot-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - growthpilot_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  growthpilot_pgdata:
+  growthpilot_redis:

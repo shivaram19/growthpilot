@@ -1,0 +1,15 @@
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "docker/Dockerfile"
+dockerContext = "."
+
+[deploy]
+startCommand = "node apps/web/server.js"
+healthcheckPath = "/api/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+
+[environments.production]
+  [environments.production.build]
+  dockerfilePath = "docker/Dockerfile"

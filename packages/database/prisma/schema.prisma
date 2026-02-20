@@ -1,0 +1,536 @@
+// GrowthPilot - AI Growth Automation Platform
+// Database schema for Shopify/Meta Ads automation
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Auth & Organization ───────────────────────────────────────
+
+model Organization {
+  id              String   @id @default(cuid())
+  clerkOrgId      String?  @unique
+  name            String
+  slug            String   @unique
+  plan            Plan     @default(FREE)
+  stripeCustomerId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  members         Member[]
+  shopifyStores   ShopifyStore[]
+  metaAdAccounts  MetaAdAccount[]
+  campaigns       Campaign[]
+  audiences       Audience[]
+  aiInsights      AIInsight[]
+  automationRules AutomationRule[]
+  budgetAlerts    BudgetAlert[]
+
+  @@index([clerkOrgId])
+}
+
+model Member {
+  id             String       @id @default(cuid())
+  clerkUserId    String
+  organizationId String
+  role           MemberRole   @default(MEMBER)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([clerkUserId, organizationId])
+  @@index([clerkUserId])
+}
+
+// ─── Shopify Integration ───────────────────────────────────────
+
+model ShopifyStore {
+  id              String       @id @default(cuid())
+  organizationId  String
+  shopDomain      String       @unique
+  accessToken     String
+  scope           String
+  isActive        Boolean      @default(true)
+  webhookSecret   String?
+  installedAt     DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  products        Product[]
+  orders          Order[]
+  customers       ShopifyCustomer[]
+  syncLogs        SyncLog[]
+
+  @@index([organizationId])
+  @@index([shopDomain])
+}
+
+model Product {
+  id              String       @id @default(cuid())
+  shopifyId       String
+  storeId         String
+  title           String
+  description     String?
+  vendor          String?
+  productType     String?
+  tags            String[]
+  status          String       @default("active")
+  imageUrl        String?
+  price           Decimal      @db.Decimal(10, 2)
+  compareAtPrice  Decimal?     @db.Decimal(10, 2)
+  inventory       Int          @default(0)
+  aiScore         Float?       // AI-computed performance score
+  aiCategory      String?      // AI-assigned category
+  syncedAt        DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  store           ShopifyStore @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orderItems      OrderItem[]
+  adCreatives     AdCreative[]
+
+  @@unique([shopifyId, storeId])
+  @@index([storeId])
+  @@index([aiScore])
+}
+
+model ShopifyCustomer {
+  id              String       @id @default(cuid())
+  shopifyId       String
+  storeId         String
+  email           String?
+  firstName       String?
+  lastName        String?
+  totalSpent      Decimal      @db.Decimal(10, 2) @default(0)
+  ordersCount     Int          @default(0)
+  tags            String[]
+  segmentIds      String[]
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  store           ShopifyStore @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  orders          Order[]
+
+  @@unique([shopifyId, storeId])
+  @@index([storeId])
+  @@index([email])
+}
+
+model Order {
+  id              String          @id @default(cuid())
+  shopifyId       String
+  storeId         String
+  customerId      String?
+  totalPrice      Decimal         @db.Decimal(10, 2)
+  subtotalPrice   Decimal         @db.Decimal(10, 2)
+  currency        String          @default("USD")
+  financialStatus String
+  fulfillmentStatus String?
+  orderNumber     Int
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  store           ShopifyStore    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer        ShopifyCustomer? @relation(fields: [customerId], references: [id])
+  items           OrderItem[]
+  attributions    AdAttribution[]
+
+  @@unique([shopifyId, storeId])
+  @@index([storeId])
+  @@index([customerId])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id         String  @id @default(cuid())
+  orderId    String
+  productId  String?
+  title      String
+  quantity   Int
+  price      Decimal @db.Decimal(10, 2)
+
+  order      Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product    Product? @relation(fields: [productId], references: [id])
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+// ─── Meta Ads Integration ──────────────────────────────────────
+
+model MetaAdAccount {
+  id              String       @id @default(cuid())
+  organizationId  String
+  metaAccountId   String       @unique
+  accessToken     String
+  refreshToken    String?
+  tokenExpiresAt  DateTime?
+  name            String
+  currency        String       @default("USD")
+  timezone        String       @default("America/New_York")
+  isActive        Boolean      @default(true)
+  connectedAt     DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  adCampaigns     MetaAdCampaign[]
+  adSets          MetaAdSet[]
+  ads             MetaAd[]
+  syncLogs        SyncLog[]
+
+  @@index([organizationId])
+}
+
+model MetaAdCampaign {
+  id              String         @id @default(cuid())
+  metaCampaignId  String
+  adAccountId     String
+  name            String
+  objective       String
+  status          String
+  dailyBudget     Decimal?       @db.Decimal(10, 2)
+  lifetimeBudget  Decimal?       @db.Decimal(10, 2)
+  startTime       DateTime?
+  stopTime        DateTime?
+  spend           Decimal        @db.Decimal(10, 2) @default(0)
+  impressions     Int            @default(0)
+  clicks          Int            @default(0)
+  conversions     Int            @default(0)
+  revenue         Decimal        @db.Decimal(10, 2) @default(0)
+  roas            Float?
+  cpa             Decimal?       @db.Decimal(10, 2)
+  syncedAt        DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  adAccount       MetaAdAccount  @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  adSets          MetaAdSet[]
+  campaign        Campaign?      @relation
+
+  @@unique([metaCampaignId, adAccountId])
+  @@index([adAccountId])
+  @@index([status])
+}
+
+model MetaAdSet {
+  id              String            @id @default(cuid())
+  metaAdSetId     String
+  adAccountId     String
+  campaignId      String
+  name            String
+  status          String
+  targeting       Json?
+  dailyBudget     Decimal?          @db.Decimal(10, 2)
+  spend           Decimal           @db.Decimal(10, 2) @default(0)
+  impressions     Int               @default(0)
+  clicks          Int               @default(0)
+  conversions     Int               @default(0)
+  syncedAt        DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  adAccount       MetaAdAccount     @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  campaign        MetaAdCampaign    @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  ads             MetaAd[]
+
+  @@unique([metaAdSetId, adAccountId])
+  @@index([adAccountId])
+  @@index([campaignId])
+}
+
+model MetaAd {
+  id              String         @id @default(cuid())
+  metaAdId        String
+  adAccountId     String
+  adSetId         String
+  name            String
+  status          String
+  creativeId      String?
+  spend           Decimal        @db.Decimal(10, 2) @default(0)
+  impressions     Int            @default(0)
+  clicks          Int            @default(0)
+  conversions     Int            @default(0)
+  ctr             Float?
+  cpc             Decimal?       @db.Decimal(10, 2)
+  syncedAt        DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  adAccount       MetaAdAccount  @relation(fields: [adAccountId], references: [id], onDelete: Cascade)
+  adSet           MetaAdSet      @relation(fields: [adSetId], references: [id], onDelete: Cascade)
+  creative        AdCreative?    @relation(fields: [creativeId], references: [id])
+  attributions    AdAttribution[]
+
+  @@unique([metaAdId, adAccountId])
+  @@index([adAccountId])
+  @@index([adSetId])
+}
+
+model AdCreative {
+  id              String    @id @default(cuid())
+  title           String
+  body            String?
+  imageUrl        String?
+  videoUrl        String?
+  callToAction    String?
+  productId       String?
+  aiGenerated     Boolean   @default(false)
+  aiPrompt        String?
+  performance     Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  product         Product?  @relation(fields: [productId], references: [id])
+  ads             MetaAd[]
+
+  @@index([productId])
+}
+
+model AdAttribution {
+  id         String   @id @default(cuid())
+  orderId    String
+  adId       String
+  clickId    String?
+  source     String   @default("meta")
+  revenue    Decimal  @db.Decimal(10, 2)
+  createdAt  DateTime @default(now())
+
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  ad         MetaAd   @relation(fields: [adId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@index([adId])
+  @@index([createdAt])
+}
+
+// ─── Campaigns & Audiences ─────────────────────────────────────
+
+model Campaign {
+  id                String          @id @default(cuid())
+  organizationId    String
+  metaCampaignId    String?         @unique
+  name              String
+  type              CampaignType
+  status            CampaignStatus  @default(DRAFT)
+  goal              String?
+  budget            Decimal?        @db.Decimal(10, 2)
+  startDate         DateTime?
+  endDate           DateTime?
+  aiOptimized       Boolean         @default(false)
+  aiSuggestions     Json?
+  performanceData   Json?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  organization      Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  metaCampaign      MetaAdCampaign? @relation(fields: [metaCampaignId], references: [id])
+  audienceTargets   CampaignAudience[]
+  automationRules   AutomationRule[]
+
+  @@index([organizationId])
+  @@index([status])
+}
+
+model Audience {
+  id              String             @id @default(cuid())
+  organizationId  String
+  name            String
+  description     String?
+  type            AudienceType
+  rules           Json               // Segmentation rules
+  size            Int                @default(0)
+  aiGenerated     Boolean            @default(false)
+  syncedToMeta    Boolean            @default(false)
+  metaAudienceId  String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  organization    Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campaigns       CampaignAudience[]
+
+  @@index([organizationId])
+}
+
+model CampaignAudience {
+  campaignId String
+  audienceId String
+
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  audience   Audience @relation(fields: [audienceId], references: [id], onDelete: Cascade)
+
+  @@id([campaignId, audienceId])
+}
+
+// ─── AI & Automation ───────────────────────────────────────────
+
+model AIInsight {
+  id              String       @id @default(cuid())
+  organizationId  String
+  type            InsightType
+  title           String
+  summary         String
+  details         Json
+  impact          ImpactLevel
+  status          InsightStatus @default(NEW)
+  actionTaken     String?
+  createdAt       DateTime     @default(now())
+  expiresAt       DateTime?
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([type])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model AutomationRule {
+  id              String           @id @default(cuid())
+  organizationId  String
+  campaignId      String?
+  name            String
+  trigger         AutoTrigger
+  condition       Json
+  action          Json
+  isActive        Boolean          @default(true)
+  lastTriggered   DateTime?
+  triggerCount    Int              @default(0)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campaign        Campaign?        @relation(fields: [campaignId], references: [id])
+  logs            AutomationLog[]
+
+  @@index([organizationId])
+  @@index([isActive])
+}
+
+model AutomationLog {
+  id          String         @id @default(cuid())
+  ruleId      String
+  status      String
+  input       Json?
+  output      Json?
+  error       String?
+  executedAt  DateTime       @default(now())
+
+  rule        AutomationRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId])
+  @@index([executedAt])
+}
+
+model BudgetAlert {
+  id              String       @id @default(cuid())
+  organizationId  String
+  threshold       Decimal      @db.Decimal(10, 2)
+  currentSpend    Decimal      @db.Decimal(10, 2) @default(0)
+  period          String       @default("daily")
+  isActive        Boolean      @default(true)
+  lastAlerted     DateTime?
+  createdAt       DateTime     @default(now())
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+model SyncLog {
+  id          String        @id @default(cuid())
+  storeId     String?
+  adAccountId String?
+  type        String
+  status      String
+  itemsCount  Int           @default(0)
+  error       String?
+  startedAt   DateTime      @default(now())
+  completedAt DateTime?
+
+  store       ShopifyStore?  @relation(fields: [storeId], references: [id])
+  adAccount   MetaAdAccount? @relation(fields: [adAccountId], references: [id])
+
+  @@index([storeId])
+  @@index([adAccountId])
+  @@index([startedAt])
+}
+
+// ─── Enums ─────────────────────────────────────────────────────
+
+enum Plan {
+  FREE
+  STARTER
+  GROWTH
+  ENTERPRISE
+}
+
+enum MemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+}
+
+enum CampaignType {
+  AWARENESS
+  TRAFFIC
+  CONVERSIONS
+  RETARGETING
+  LOOKALIKE
+  DYNAMIC_PRODUCT
+}
+
+enum CampaignStatus {
+  DRAFT
+  REVIEW
+  ACTIVE
+  PAUSED
+  COMPLETED
+  ARCHIVED
+}
+
+enum AudienceType {
+  CUSTOM
+  LOOKALIKE
+  SAVED
+  AI_GENERATED
+}
+
+enum InsightType {
+  BUDGET_OPTIMIZATION
+  AUDIENCE_EXPANSION
+  CREATIVE_FATIGUE
+  TRENDING_PRODUCT
+  ANOMALY_DETECTION
+  COMPETITOR_ALERT
+  ROAS_OPPORTUNITY
+  SCALING_SUGGESTION
+}
+
+enum ImpactLevel {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum InsightStatus {
+  NEW
+  VIEWED
+  ACTIONED
+  DISMISSED
+  EXPIRED
+}
+
+enum AutoTrigger {
+  ROAS_DROP
+  BUDGET_THRESHOLD
+  CPA_SPIKE
+  CREATIVE_FATIGUE
+  INVENTORY_LOW
+  SCHEDULE
+  CONVERSION_DROP
+  NEW_PRODUCT
+}

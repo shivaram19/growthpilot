@@ -1,0 +1,25 @@
+{
+  "name": "growthpilot",
+  "private": true,
+  "scripts": {
+    "build": "npx turbo build",
+    "dev": "npm run --workspace=@growthpilot/web dev",
+    "lint": "npx turbo lint",
+    "test": "npm run --workspace=@growthpilot/web test",
+    "db:generate": "npm run --workspace=@growthpilot/database db:generate",
+    "db:push": "npm run --workspace=@growthpilot/database db:push",
+    "format": "prettier --write \"**/*.{ts,tsx,md}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.2.5",
+    "turbo": "^2.3.0",
+    "typescript": "^5.5.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  }
+}
